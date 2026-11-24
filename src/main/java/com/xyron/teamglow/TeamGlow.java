@@ -38,9 +38,15 @@ public class TeamGlow extends JavaPlugin implements Listener {
     @Override
     public void onEnable() {
         command = new TeamCommand(this);
+
+        // remove leftover teams from older versions (they were saved in the world and still color names)
+        for (Team stale : new ArrayList<>(Bukkit.getScoreboardManager().getMainScoreboard().getTeams())) {
+            if (stale.getName().startsWith(PREFIX)) stale.unregister();
+        }
         PluginCommand pc = getCommand("team");
         if (pc != null) { pc.setExecutor(command); pc.setTabCompleter(command); }
         Bukkit.getPluginManager().registerEvents(this, this);
+        Bukkit.getScheduler().runTask(this, () -> Bukkit.getOnlinePlayers().forEach(this::rebuildView));
 
         Bukkit.getScheduler().runTaskTimer(this, () -> {
             for (UUID id : memberTeam.keySet()) {
@@ -65,6 +71,7 @@ public class TeamGlow extends JavaPlugin implements Listener {
     @Override
     public void onDisable() {
         for (String name : new ArrayList<>(teamColors.keySet())) deleteTeam(name);
+        for (Player p : Bukkit.getOnlinePlayers()) p.setScoreboard(Bukkit.getScoreboardManager().getMainScoreboard());
     }
 
     // ---- make sure OUR /team runs instead of vanilla /team ----
@@ -118,23 +125,19 @@ public class TeamGlow extends JavaPlugin implements Listener {
         teamColors.put(name, color);
     }
 
-    /** Each team member gets a private scoreboard where ONLY their teammates are colored. */
+    /** EVERY player gets a private scoreboard. Only their own teammates are colored on it. */
     private void rebuildView(Player v) {
         String team = memberTeam.get(v.getUniqueId());
-        if (team == null) {
-            if (personal.remove(v.getUniqueId()) != null) {
-                v.setScoreboard(Bukkit.getScoreboardManager().getMainScoreboard());
-            }
-            return;
-        }
         Scoreboard sb = personal.computeIfAbsent(v.getUniqueId(), k -> Bukkit.getScoreboardManager().getNewScoreboard());
         for (Team old : new ArrayList<>(sb.getTeams())) old.unregister();
-        Team t = sb.registerNewTeam("view");
-        t.setColor(teamColors.get(team));
-        t.setCanSeeFriendlyInvisibles(true);
-        for (UUID id : members(team)) {
-            String n = Bukkit.getOfflinePlayer(id).getName();
-            if (n != null) t.addEntry(n);
+        if (team != null) {
+            Team t = sb.registerNewTeam("view");
+            t.setColor(teamColors.get(team));
+            t.setCanSeeFriendlyInvisibles(true);
+            for (UUID id : members(team)) {
+                String n = Bukkit.getOfflinePlayer(id).getName();
+                if (n != null) t.addEntry(n);
+            }
         }
         if (v.getScoreboard() != sb) v.setScoreboard(sb);
     }
@@ -212,14 +215,16 @@ public class TeamGlow extends JavaPlugin implements Listener {
 
     @EventHandler
     public void onJoin(PlayerJoinEvent e) {
-        String team = memberTeam.get(e.getPlayer().getUniqueId());
-        if (team == null) return;
-        Team t = Bukkit.getScoreboardManager().getMainScoreboard().getTeam(PREFIX + team);
-        if (t != null) t.addEntry(e.getPlayer().getName());
-        entityTeam.put(e.getPlayer().getEntityId(), team);
-        e.getPlayer().setGlowing(false);
-        rebuildView(e.getPlayer());
-        syncGlow(e.getPlayer());
+        Player p = e.getPlayer();
+        String team = memberTeam.get(p.getUniqueId());
+        if (team != null) {
+            Team t = Bukkit.getScoreboardManager().getMainScoreboard().getTeam(PREFIX + team);
+            if (t != null) t.addEntry(p.getName());
+            entityTeam.put(p.getEntityId(), team);
+            p.setGlowing(false);
+        }
+        rebuildView(p); // clean private scoreboard for everyone
+        if (team != null) syncGlow(p);
     }
 
     @EventHandler
