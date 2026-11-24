@@ -29,6 +29,7 @@ public class TeamGlow extends JavaPlugin implements Listener {
     private final Map<String, ChatColor> teamColors = new LinkedHashMap<>();
     private final Map<UUID, String> memberTeam = new ConcurrentHashMap<>();
     private final Map<Integer, String> entityTeam = new ConcurrentHashMap<>();
+    private final Map<UUID, Scoreboard> personal = new ConcurrentHashMap<>();
     private boolean fight = false; // false = teammates can NOT hit each other
     private boolean glow = true;
     private boolean filterActive = false;
@@ -41,16 +42,23 @@ public class TeamGlow extends JavaPlugin implements Listener {
         if (pc != null) { pc.setExecutor(command); pc.setTabCompleter(command); }
         Bukkit.getPluginManager().registerEvents(this, this);
 
+        Bukkit.getScheduler().runTaskTimer(this, () -> {
+            for (UUID id : memberTeam.keySet()) {
+                Player p = Bukkit.getPlayer(id);
+                if (p != null) syncGlow(p);
+            }
+        }, 20L, 20L);
+
         if (Bukkit.getPluginManager().getPlugin("ProtocolLib") != null) {
             try {
                 GlowFilter.register(this);
                 filterActive = true;
                 getLogger().info("ProtocolLib found: glow is visible to teammates only.");
             } catch (Throwable t) {
-                getLogger().warning("ProtocolLib failed (" + t + "). Glow will be visible to EVERYONE.");
+                getLogger().warning("ProtocolLib failed (" + t + "). Glow is DISABLED for everyone.");
             }
         } else {
-            getLogger().warning("ProtocolLib not found. Glow will be visible to EVERYONE. Install ProtocolLib for team-only glow.");
+            getLogger().warning("ProtocolLib not found. Glow is DISABLED for everyone. Install ProtocolLib for team-only glow.");
         }
     }
 
@@ -105,10 +113,37 @@ public class TeamGlow extends JavaPlugin implements Listener {
         Team old = sb.getTeam(PREFIX + name);
         if (old != null) old.unregister();
         Team t = sb.registerNewTeam(PREFIX + name);
-        t.setColor(color);
         t.setAllowFriendlyFire(fight);
         t.setCanSeeFriendlyInvisibles(true);
         teamColors.put(name, color);
+    }
+
+    /** Each team member gets a private scoreboard where ONLY their teammates are colored. */
+    private void rebuildView(Player v) {
+        String team = memberTeam.get(v.getUniqueId());
+        if (team == null) {
+            if (personal.remove(v.getUniqueId()) != null) {
+                v.setScoreboard(Bukkit.getScoreboardManager().getMainScoreboard());
+            }
+            return;
+        }
+        Scoreboard sb = personal.computeIfAbsent(v.getUniqueId(), k -> Bukkit.getScoreboardManager().getNewScoreboard());
+        for (Team old : new ArrayList<>(sb.getTeams())) old.unregister();
+        Team t = sb.registerNewTeam("view");
+        t.setColor(teamColors.get(team));
+        t.setCanSeeFriendlyInvisibles(true);
+        for (UUID id : members(team)) {
+            String n = Bukkit.getOfflinePlayer(id).getName();
+            if (n != null) t.addEntry(n);
+        }
+        if (v.getScoreboard() != sb) v.setScoreboard(sb);
+    }
+
+    private void rebuildTeamViews(String team) {
+        for (UUID id : members(team)) {
+            Player p = Bukkit.getPlayer(id);
+            if (p != null) rebuildView(p);
+        }
     }
 
     public void addPlayer(Player p, String team) {
@@ -119,8 +154,9 @@ public class TeamGlow extends JavaPlugin implements Listener {
         t.addEntry(p.getName());
         memberTeam.put(p.getUniqueId(), team);
         entityTeam.put(p.getEntityId(), team);
-        p.setGlowing(glow);
-        refresh(p);
+        p.setGlowing(false); // server never glows; teammates get it via packets
+        rebuildTeamViews(team);
+        syncGlow(p);
     }
 
     public void removePlayer(Player p) {
@@ -130,7 +166,9 @@ public class TeamGlow extends JavaPlugin implements Listener {
         Team t = Bukkit.getScoreboardManager().getMainScoreboard().getTeam(PREFIX + team);
         if (t != null) t.removeEntry(p.getName());
         p.setGlowing(false);
-        refresh(p);
+        rebuildView(p);
+        rebuildTeamViews(team);
+        syncGlow(p);
     }
 
     public void deleteTeam(String name) {
@@ -163,13 +201,13 @@ public class TeamGlow extends JavaPlugin implements Listener {
         glow = on;
         for (UUID id : memberTeam.keySet()) {
             Player p = Bukkit.getPlayer(id);
-            if (p != null) { p.setGlowing(on); refresh(p); }
+            if (p != null) syncGlow(p);
         }
     }
 
-    private void refresh(Player p) {
+    private void syncGlow(Player p) {
         if (!filterActive) return;
-        try { GlowFilter.refresh(p); } catch (Throwable ignored) { }
+        try { GlowFilter.sync(this, p); } catch (Throwable ignored) { }
     }
 
     @EventHandler
@@ -179,11 +217,14 @@ public class TeamGlow extends JavaPlugin implements Listener {
         Team t = Bukkit.getScoreboardManager().getMainScoreboard().getTeam(PREFIX + team);
         if (t != null) t.addEntry(e.getPlayer().getName());
         entityTeam.put(e.getPlayer().getEntityId(), team);
-        e.getPlayer().setGlowing(glow);
+        e.getPlayer().setGlowing(false);
+        rebuildView(e.getPlayer());
+        syncGlow(e.getPlayer());
     }
 
     @EventHandler
     public void onQuit(PlayerQuitEvent e) {
         entityTeam.remove(e.getPlayer().getEntityId());
+        personal.remove(e.getPlayer().getUniqueId());
     }
 }
