@@ -233,3 +233,5 @@ public class TeamGlow extends JavaPlugin implements Listener {
         personal.remove(e.getPlayer().getUniqueId());
     }
 }
+import org.bukkit.entity.Projectile;
+import org.bukkit.event.entity.EntityDamageByEntityEvent;
