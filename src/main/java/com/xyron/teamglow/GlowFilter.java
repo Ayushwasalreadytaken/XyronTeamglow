@@ -16,16 +16,16 @@ import java.util.List;
 /** Only loaded when ProtocolLib exists. Keeps the glow flag only for teammates. */
 final class GlowFilter {
 
-    static void register(TeamGlow plugin) {
+    static void register(TeamGlow owner) {
         ProtocolLibrary.getProtocolManager().addPacketListener(
-                new PacketAdapter(plugin, ListenerPriority.HIGH, PacketType.Play.Server.ENTITY_METADATA) {
+                new PacketAdapter(owner, ListenerPriority.HIGH, PacketType.Play.Server.ENTITY_METADATA) {
                     @Override
                     public void onPacketSending(PacketEvent e) {
                         if (e.isPlayerTemporary()) return;
                         int id = e.getPacket().getIntegers().read(0);
-                        String team = plugin.teamOfEntity(id);
+                        String team = owner.teamOfEntity(id);
                         if (team == null) return;
-                        boolean visible = plugin.isGlow() && team.equals(plugin.teamOfUuid(e.getPlayer().getUniqueId()));
+                        boolean visible = owner.isGlow() && team.equals(owner.teamOfUuid(e.getPlayer().getUniqueId()));
                         PacketContainer packet = e.getPacket().deepClone();
                         List<WrappedDataValue> values = packet.getDataValueCollectionModifier().read(0);
                         for (WrappedDataValue v : values) {
