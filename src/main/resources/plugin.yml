@@ -1,0 +1,13 @@
+name: TeamGlow
+main: com.xyron.teamglow.TeamGlow
+version: 1.1.0
+api-version: '1.20'
+softdepend: [ProtocolLib]
+commands:
+  team:
+    description: TeamGlow team manager
+    aliases: [tm, tg]
+    usage: /team help
+permissions:
+  teamglow.admin:
+    default: op
