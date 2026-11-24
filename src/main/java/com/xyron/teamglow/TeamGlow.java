@@ -4,12 +4,13 @@ import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.Projectile;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.player.PlayerCommandPreprocessEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
-import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.server.ServerCommandEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scoreboard.Scoreboard;
@@ -227,11 +228,16 @@ public class TeamGlow extends JavaPlugin implements Listener {
         if (team != null) syncGlow(p);
     }
 
-    @EventHandler
-    public void onQuit(PlayerQuitEvent e) {
-        entityTeam.remove(e.getPlayer().getEntityId());
-        personal.remove(e.getPlayer().getUniqueId());
+    /** Teammates cannot hurt each other (melee, arrows, tridents...) while /team pvp is off. */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onDamage(EntityDamageByEntityEvent e) {
+        if (fight) return;
+        if (!(e.getEntity() instanceof Player victim)) return;
+        Player attacker = null;
+        if (e.getDamager() instanceof Player p) attacker = p;
+        else if (e.getDamager() instanceof Projectile proj && proj.getShooter() instanceof Player p) attacker = p;
+        if (attacker == null || attacker.equals(victim)) return;
+        String a = memberTeam.get(attacker.getUniqueId());
+        if (a != null && a.equals(memberTeam.get(victim.getUniqueId()))) e.setCancelled(true);
     }
 }
-import org.bukkit.entity.Projectile;
-import org.bukkit.event.entity.EntityDamageByEntityEvent;
